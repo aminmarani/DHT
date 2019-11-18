@@ -1,0 +1,130 @@
+CSE 403 Assignment #2 (25 points)
+Spring 2019
+
+Distributed Replicated Hash Table (RHT):
+
+This programming assignment involves the implementation of a distributed hash table where each of its element is replicated on multiple nodes (RHT) . The specification intentionally leaves undefined many components and designs. Please document your decisions/attempts/success/failures. They will be the main topic of the grading process, along with discussing the performance evaluation of your RHT.
+
+The submission should be done through coursesite.lehigh.edu and should consist of:
+- the source code of your assignment;
+- a document containing the performance plots and the findings you consider worth to be shared with me (if any).
+
+I will grade assignments during a one-on-one meeting with you. During the one-to-one meeting.
+
+Good luck guys!
+
+
+ssh -i launch-wizard-1.pem ec2-user@ec2-13-58-222-114.us-east-2.compute.amazonaws.com
+ssh -i launch-wizard-1.pem ec2-user@ec2-52-14-54-150.us-east-2.compute.amazonaws.com
+ssh -i launch-wizard-1.pem ec2-user@ec2-18-220-125-167.us-east-2.compute.amazonaws.com
+ec2-3-18-220-173.us-east-2.compute.amazonaws.com
+ec2-18-220-125-167.us-east-2.compute.amazonaws.com
+
+sudo yum install python36
+
+
+cd /home/ec2-user
+python3 rpcserver.py
+
+
+
+Theroical Steps to do the project:
+1-Updates have to happen all or nothing for (put,get and multiput)
+	+first work on put,get and then multi-put
+	XXif a coordinator crashes, just replace it with another thread in thread pool ?? --> if the coordinator is in the same machine how we can access the log file then? any node can be coordinator?
+	XX solved --> I still don't know if I ask nodes they are ready, they must stop for everything else or what? or just lock that key? if we lock the key, how?
+	+if a put/get/mput fails then you should ask client to do it again and abort it. Server should not repeat it again.
+	+*you have to tell them to lock for put,get(mostly put) and commit the change and finally release the lock --> Share lock on one key! what is that? --> you have to share lock one key, so nobody can read before a put and vice versa
+	+** Coordinator - Particpants // messages={Prepare,Commit,Abort} , decision={Commit,Abort} --> If all agree then commit, else Abort --> there is acknowledge message at the end from participants to coordinator --> if the acknowledge fails, restoring previous value(before prepare for put, we should get from all servers for restoring!) OR we should add the current unsucessful node to the update list at the top of the queue (page 41 to 46 + next/below note)
+	+-***write decision with details on log file (page 23, 24) // write whole process on log files(page 28 to 33 especially 33) // page 36(main) // page 37(main)//run program and continue based on your last log-file log
+	XX-****Recovery for coordinator crash(page 38) --> coordinator replacement (last page)
+	+read the description to make sure if I cover everything --> run every part especially 5 nodes
+	XX-*****For get we need to check every(at least 2 random) nodes and check the value if it is the same or not
+	+******Can't lock the whole bucket, only that ki-index
+	+******if a put/get/put(3 times) fails then you should ask client to do it again and abort it. Server should not repeat it again.
+	+*******Client must run multi-thread and more than one thread must sending
+	+********set keys for generic --> in find_nodes()
+	-*********what if we say commit and one/more node(s) can't ? should we restore or should we skip?
+	+*********Do with and without logging
+	+*********Do with Replica>=3
+	XX-**********what if an index has been locked for a long time and there is no respose? make function and call it every some seconds in put/get/others and unlock those who are locked a long time, how? consider an extra array for that! --> considering an extra array for that, we don't need an extra function, if it is locked for a long time based on that array just unlock it
+	+************Multi put/get/etc with random distribution
+	-************more than one coordinator
+	XX-************write on log consider timing for synchronization
+	-*************try one phase commit(just put) and compare it to current model
+	-**************if there is not anything left, recover a crash
+	-***************work on multi-put when it is semisuccessful, restore previous values
+	+***************run clients more than 5 nodes (5,6,7,10)
+	-****************if get values are different return false
+	-*****************if get values are different consider timing so later you can understand which one is right one and tell other node to put the correct value
+	-******************Do not count semisuccessful as the pos_throughput and recount the data again
+
+
+Implementation steps:
++1-write coordinator,server,client --> I consider that there is a list of clients files that every machine has it and 
+									  coordinator(even if crashes and another comes) can connect to clients and tell them
+									  send data to me from now! --> X --> I deleted it, because it makes the project more complex 
+									  and each time for a client/coordinator we needed to send/recv simultanesouly to each other, I 
+									  consider the idea below
+									  sol--> every client has cordinator nodes information and thats all
+								  XX--> Coordinator sends I am available at this address every 15 secs to all clients --> deleted
+								  --> clients only connect to one and only one cordinator address and start sending their messages
+								  --> get does not use prepare,commit,abort and only dircect call. if one node was successfull we return it
+								      otherwise we return failed and client must consider this get later
++2-do get with lock and 2 phase prepare,commit,abort (consider multi storage to be a Number >=2 and settable)
+	XX --> get,put,multiput and the phases must also send an ID so server/cordinator knows which items we talk about for example
+	    "prepare,idNum" mean this node is preapare for this idnum task --> since it is direct access using XMLRPC
++3-if get fails, client must put it back at the queue
++4-put
++5-multi-put
+
+
+
+========================
+Specification:
+
+- The RHT offers three APIs: put(K,V)/get(K)/put(<K1,V1>,<K2,V2>,<K3,V3>). The put(K,V) API is responsible for storing the value V associated with the key K. The get(K) API is responsible for retrieving the value associated with the key K. The put(<K1,V1>,<K2,V2>,<K3,V3>) stores the three keys K1,K2,K3 in the RHT atomically.
+
+Keys are assumed to be of type String and values can be of any type (use genetics).
+
+- More in details, the semantics of the above operations is the following:
+** The put(K,V) updates the key K in the RHT if K already exists; otherwise it adds it to the RHT. In both these cases, the put returns true. If the put operation cannot be performed due to concurrency with other put or get operations on the same K, then the put returns false. If the put returns false, the application should retry the same put operation until it succeeds.
+** The put(<K1,V1>,<K2,V2>,<K3,V3>) has the same semantics as the put(K,V), but applied to multiple keys, atomically.
+** The get(K) returns the value associated with K if any, otherwise NULL. The get(K) should never fail due to concurrency.
+
+MyNote: + slide 8-> you habe to wait for all notification when you call multi-put. all nodes respondant to that call must notify they could
+					handle the put and then it triggers. // if it fails, you have to run it later (put it back to queue --> Question: if we fail on first key and put it back behind 3000 other request, is it correct? what is the other way?)
+		+ solved --> I still don't know if I ask nodes they are ready, they must stop for everything else or what? or just lock that key? if we lock the key, how?
+		+ When I ask if every node is available, should I wait for getting any responce? or should this node continue? --> you don't have to wait for them...but what to do?
+		+ What if a node crashes? --> ?Have no idea! // a little bit on page 17-18 and closer ones
+		+ if one node crashes or you can't get all other nodes responds, you have to send abort to other nodes, so they can release the locks.
+		+ Do all or nothing...if all respond then go to next level (prepare,commit) or do nothing(abort)
+		+ in multi-put always stick to order (never prepare k2 before k1)
+		+ look at slide 27, how do you solve get(k1) problem while one node commited and another one, not!
+		+ Share lock on one key! what is that? --> you have to share lock one key, so nobody can read before a put and vice versa
+		+ if a put/get/put(3 times) fails then you should ask client to do it again and abort it. Server should not repeat it again.
+		+ Can't lock the whole bucket, only that ki-index
+		+ For get we need to check every(at least 2 random) nodes and check the value if it is the same or not
+
+		
+
+- Only conflicting operations should be prevented from acting in parallel (e.g., using locks). Any non-conflicting operation should be allowed to complete regardless the existence of other concurrent operations.
+
+MyNote: one thread should not listen! --> the server is listenning and then use threads to continue working!
+
+- Each key stored in the RHT is replicated on two different nodes in the system. For simplicity you can assume the range of keys is known a priori and their mapping to nodes is also known. Feel free to explore other solutions as well.
+
+MyNote: You can use RING architecture and contact easier(one/two forward/backward)
+
+- It is expected that you run your RHT through a script file that starts up all the processes in your RHT. That means, you should not manually start your processes through different terminals. Since each process knows the composition of the distributed system, each process waits until all other processes are running and then it starts executing operations. 
+
+- Deploy the RHT on at least five processes. These processes can be five different nodes in sunlab, or on Amazon, or on any other platform that offers computing nodes.
+
+- To test your DHT, write a simple application per process that activates eight threads and generates a configurable number of operations on the RHT (e.g., 100000)in a closed-loop. Each operation accesses random keys. You should have 20% of probability to execute a put on a single key, 20% to execute a put on multiple keys, and 60% of probability to execute a get.
+
+MyNote: one system and 8 threads(not 8 apps)
+
+- The test application should also collect performance metrics to be included in plots. Specifically, two metrics need to be collected: average throughput (i.e., the average number of sucessful operations per second performed by all processes) and average latency (i.e., the average time needed by the system to accomplish one operation). At least two plots need to be delivered: one plot should have on the y-axis the system throughout, and one plot should have on the y-axis the average latency. Both of them have the range of keys as x-axis. The ranges of keys to use are the following {10;100;1000;10000}.
+
+- No specific programming language it is required to be used. Choose one wisely.
+
